@@ -1,0 +1,86 @@
+name: Issue Triage
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+
+jobs:
+  triage:
+    if: github.event.sender.type != 'Bot'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Triage issue with Claude
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: '--allowed-tools "Bash(gh issue:*),Bash(gh label:*),Bash(gh api:*),Read,Glob,Grep"'
+          prompt: |
+            Analiza el issue #${{ github.event.issue.number }} del repositorio ${{ github.repository }} y haz triage automático.
+
+            Pasos:
+
+            1. Lee el issue:
+               gh issue view ${{ github.event.issue.number }} --repo ${{ github.repository }} --json title,body,labels,comments
+
+            2. Lee CLAUDE.md y revisa el código relevante (game.js, index.html, style.css) para obtener contexto técnico antes de diagnosticar.
+
+            3. Asigna etiquetas estándar de GitHub apropiadas, eligiendo una o más de este set:
+                 bug, enhancement, question, documentation, good first issue, help wanted
+
+               Si alguna etiqueta no existe, créala primero (los colores son sugeridos, ajusta si quieres):
+                 gh label create "bug" --color d73a4a --description "Algo no funciona" --repo ${{ github.repository }} || true
+                 gh label create "enhancement" --color a2eeef --description "Nueva funcionalidad o mejora" --repo ${{ github.repository }} || true
+                 gh label create "question" --color d876e3 --description "Se requiere más información" --repo ${{ github.repository }} || true
+                 gh label create "documentation" --color 0075ca --description "Mejoras o adiciones a la documentación" --repo ${{ github.repository }} || true
+                 gh label create "good first issue" --color 7057ff --description "Bueno para empezar" --repo ${{ github.repository }} || true
+                 gh label create "help wanted" --color 008672 --description "Se necesita ayuda externa" --repo ${{ github.repository }} || true
+
+               Aplica las etiquetas elegidas (sin remover las existentes):
+                 gh issue edit ${{ github.event.issue.number }} --repo ${{ github.repository }} --add-label "<l1>,<l2>"
+
+            4. Publica un comentario en español en el issue con el diagnóstico. Estructura en markdown:
+
+               ## Resumen del problema
+               (1–2 frases)
+
+               ## Diagnóstico
+               (causa probable y por qué)
+
+               ## Archivos probablemente afectados
+               - `ruta/archivo`: por qué
+               (usa rutas concretas del repo: game.js, index.html, style.css, etc.)
+
+               ## Complejidad estimada
+               baja / media / alta — justificación breve
+
+               ## Enfoque sugerido
+               Pasos de alto nivel para resolver. NO escribas el código aún.
+
+               ## Preguntas abiertas
+               (omite la sección si no aplica)
+
+               ---
+               _Diagnóstico automático generado por Claude — revisar antes de implementar._
+
+            5. Antes de comentar, verifica si ya hay un comentario previo tuyo (busca la firma "_Diagnóstico automático generado por Claude"). Si existe, actualízalo en lugar de duplicar:
+                 # listar comentarios:
+                 gh api repos/${{ github.repository }}/issues/${{ github.event.issue.number }}/comments
+                 # editar uno existente:
+                 gh api --method PATCH repos/${{ github.repository }}/issues/comments/<comment-id> -f body="<nuevo cuerpo>"
+
+               Si no existe, créalo:
+                 gh issue comment ${{ github.event.issue.number }} --repo ${{ github.repository }} --body "<markdown>"
+
+            Importante:
+            - Responde siempre en español.
+            - No modifiques ningún archivo del repositorio; tu único output son labels y un comentario en el issue.
+            - No propongas ni escribas la solución de código — solo el diagnóstico.
